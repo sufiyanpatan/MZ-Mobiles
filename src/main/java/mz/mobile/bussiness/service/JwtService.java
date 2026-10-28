@@ -15,63 +15,6 @@ import javax.crypto.spec.SecretKeySpec;
 import java.util.Base64;
 import java.util.Date;
 
-
-//@Service
-//public class JwtService {
-//
-//    @Value("${app.jwt.secret}")
-//    private String secret;
-//
-//    @Value("${app.jwt.expiration-ms}")
-//    private long expirationMs;
-//
-//    private SecretKey getSigningKey() {
-//        byte[] keyBytes = Decoders.BASE64.decode(secret);
-//        return Keys.hmacShaKeyFor(keyBytes);
-//    }
-//
-//    public String generateToken(UserDetails userDetails) {
-//        Date now = new Date();
-//        Date expiry = new Date(
-//                now.getTime() + expirationMs);
-//
-//        return Jwts.builder()
-//                .subject(userDetails.getUsername())
-//                .issuedAt(now)
-//                .expiration(expiry)
-//                .signWith(getSigningKey())
-//                .compact();
-//    }
-//
-//    public String extractUsername(String token) {
-//        return extractAllClaims(token).getSubject();
-//    }
-//
-//    public boolean isTokenValid(
-//            String token,
-//            UserDetails userDetails) {
-//
-//        String username = extractUsername(token);
-//
-//        return username.equals(userDetails.getUsername())
-//                && extractAllClaims(token)
-//                .getExpiration()
-//                .after(new Date());
-//    }
-//
-//    private Claims extractAllClaims(String token) {
-//        return Jwts.parser()
-//                .verifyWith(getSigningKey())
-//                .build()
-//                .parseSignedClaims(token)
-//                .getPayload();
-//    }
-//
-//    public long getExpirationMs() {
-//        return expirationMs;
-//    }
-//}
-
 @Service
 public class JwtService {
 
@@ -107,45 +50,8 @@ public class JwtService {
         this.expirationMs = expirationMs;
     }
 
-//    public String generateToken(UserDetails userDetails) {
-//        Date now = new Date();
-//        return Jwts.builder()
-//                .issuer(ISSUER)
-//                .subject(userDetails.getUsername())
-//                .issuedAt(now)
-//                .expiration(new Date(now.getTime() + expirationMs))
-//                .signWith(signingKey)
-//                .compact();
-//    }
-
     public String extractUsername(String token) {
         return extractAllClaims(token).getSubject();
-    }
-
-//    public boolean isTokenValid(String token, UserDetails userDetails) {
-//        Claims claims = extractAllClaims(token);   // already verifies signature, issuer and expiry
-//        return userDetails.getUsername().equals(claims.getSubject())
-//                && claims.getExpiration().after(new Date());
-//    }
-
-    public String generateToken(AuthUser user) {
-        Date now = new Date();
-        return Jwts.builder()
-                .issuer(ISSUER)
-                .subject(user.getUsername())
-                .claim("tv", user.getTokenVersion())          // token version
-                .issuedAt(now)
-                .expiration(new Date(now.getTime() + expirationMs))
-                .signWith(signingKey)
-                .compact();
-    }
-
-    public boolean isTokenValid(String token, AuthUser user) {
-        Claims c = extractAllClaims(token);
-        Integer tv = c.get("tv", Integer.class);
-        return user.getUsername().equals(c.getSubject())
-                && tv != null && tv == user.getTokenVersion()   // revoked or old tokens fail here
-                && c.getExpiration().after(new Date());
     }
 
     private Claims extractAllClaims(String token) {
@@ -159,5 +65,30 @@ public class JwtService {
 
     public long getExpirationMs() {
         return expirationMs;
+    }
+
+    // Mobile OTP
+    public String generateToken(AuthUser user) {
+        Date now = new Date();
+        return Jwts.builder()
+                .issuer(ISSUER)
+                .subject(String.valueOf(user.getId()))     // a number, no personal data in the token
+                .claim("tv", user.getTokenVersion())
+                .issuedAt(now)
+                .expiration(new Date(now.getTime() + expirationMs))
+                .signWith(signingKey)
+                .compact();
+    }
+
+    public Long extractUserId(String token) {
+        return Long.valueOf(extractAllClaims(token).getSubject());   // old email-based tokens fail here
+    }
+
+    public boolean isTokenValid(String token, AuthUser user) {
+        Claims c = extractAllClaims(token);
+        Integer tv = c.get("tv", Integer.class);
+        return String.valueOf(user.getId()).equals(c.getSubject())
+                && tv != null && tv == user.getTokenVersion()
+                && c.getExpiration().after(new Date());
     }
 }

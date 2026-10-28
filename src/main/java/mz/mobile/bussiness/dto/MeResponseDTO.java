@@ -2,4 +2,5 @@ package mz.mobile.bussiness.dto;
 
 import java.util.List;
 
-public record MeResponseDTO(String email, List<String> roles) {}
+// Mobile OTP
+public record MeResponseDTO(Long id, String email, String mobile, List<String> roles) {}

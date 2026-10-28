@@ -16,20 +16,10 @@ import java.util.Set;
 @Getter
 @NoArgsConstructor
 public class AppUser {
-//    public AppUser() {
-//    }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @Column(nullable = false, unique = true, length = 255)
-    private String email;
-
-    @Column(nullable = false)
-    private String password;
-
-    private boolean enabled = true;
 
     @ManyToMany
     @JoinTable(
@@ -39,9 +29,6 @@ public class AppUser {
     )
     private Set<AppRoles> roles = new HashSet<>();
 
-//    @Column(nullable = false, length = 30)
-//    private String role;
-
     @Column(nullable = false)
     private int failedAttempts = 0;
 
@@ -50,4 +37,17 @@ public class AppUser {
     @Column(nullable = false)
     private int tokenVersion = 0;
 
+    // for mobile OTP adding code
+    @Column(unique = true, length = 255)
+    private String email;
+
+    @Column(length = 255)
+    private String password;
+
+    @Column(unique = true, length = 15)        // stored as +91XXXXXXXXXX
+    private String mobile;
+
+    private boolean mobileVerified = false;
+
+    private boolean enabled = true;
 }

@@ -11,11 +11,8 @@ import mz.mobile.bussiness.service.CustomUserDetailsService;
 import mz.mobile.bussiness.service.JwtService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.web.servlet.FilterRegistrationBean;
-import org.springframework.context.annotation.Bean;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
@@ -36,13 +33,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         this.userDetailsService = userDetailsService;
     }
 
-//    @Bean
-//    FilterRegistrationBean<JwtAuthenticationFilter> jwtFilterRegistration(JwtAuthenticationFilter f) {
-//        FilterRegistrationBean<JwtAuthenticationFilter> r = new FilterRegistrationBean<>(f);
-//        r.setEnabled(false);
-//        return r;
-//    }
-
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
@@ -55,13 +45,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = authHeader.substring(7).trim();
 
+        // Mobile OTP
         try {
-            String email = jwtService.extractUsername(token);
+            Long userId = jwtService.extractUserId(token);
 
-            if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                AuthUser user = (AuthUser) userDetailsService.loadUserByUsername(email);
+            if (SecurityContextHolder.getContext().getAuthentication() == null) {
+                AuthUser user = userDetailsService.loadUserById(userId);
 
-                // isEnabled(): a disabled user loses access immediately, even with a valid token
                 if (user.isEnabled() && jwtService.isTokenValid(token, user)) {
                     UsernamePasswordAuthenticationToken authentication =
                             new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
@@ -84,40 +74,4 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         filterChain.doFilter(request, response);
     }
-
-//    @Override
-//    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-//
-//        String authHeader = request.getHeader("Authorization");
-//
-//        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-//            filterChain.doFilter(request, response);
-//            return;
-//        }
-//
-//        String token = authHeader.substring(7);
-//
-//        try {
-//            String email = jwtService.extractUsername(token);
-//
-//            if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-//
-//                UserDetails userDetails = userDetailsService.loadUserByUsername(email);
-//
-//                if (jwtService.isTokenValid(token, userDetails)) {
-//
-//                    UsernamePasswordAuthenticationToken authentication =
-//                            new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-//
-//                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-//
-//                    SecurityContextHolder.getContext().setAuthentication(authentication);
-//                }
-//            }
-//        } catch (JwtException | IllegalArgumentException | UsernameNotFoundException exception) {
-//            SecurityContextHolder.clearContext();
-//        }
-//
-//        filterChain.doFilter(request, response);
-//    }
 }

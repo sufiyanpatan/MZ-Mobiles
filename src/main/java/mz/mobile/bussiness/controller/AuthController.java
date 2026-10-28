@@ -1,13 +1,12 @@
 package mz.mobile.bussiness.controller;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
-import mz.mobile.bussiness.dto.AuthResponseDTO;
-import mz.mobile.bussiness.dto.LoginRequestDTO;
-import mz.mobile.bussiness.dto.MeResponseDTO;
-import mz.mobile.bussiness.dto.RegisterRequestDTO;
+import mz.mobile.bussiness.dto.*;
 import mz.mobile.bussiness.security.AuthUser;
 import mz.mobile.bussiness.service.AuthService;
+import mz.mobile.bussiness.service.MobileAuthService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -20,9 +19,11 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final MobileAuthService mobileAuthService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, MobileAuthService mobileAuthService) {
         this.authService = authService;
+        this.mobileAuthService = mobileAuthService;
     }
 
     @PostMapping("/register")
@@ -45,25 +46,30 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
-//    @GetMapping("/me")
-//    public ResponseEntity<Map<String, String>> me(
-//            org.springframework.security.core.Authentication authentication) {
-//
-//        return ResponseEntity.ok(
-//                Map.of("email", authentication.getName()));
-//    }
-
+    // Mobile OTP
     @GetMapping("/me")
     public ResponseEntity<MeResponseDTO> me(Authentication authentication) {
-        AuthUser user = (AuthUser) authentication.getPrincipal();
-        return ResponseEntity.ok(new MeResponseDTO(user.getUsername(), user.getRoleNames()));
+        AuthUser u = (AuthUser) authentication.getPrincipal();
+        return ResponseEntity.ok(new MeResponseDTO(u.getId(), u.getEmail(), u.getMobile(), u.getRoleNames()));
     }
 
     @PostMapping("/logout")
     public ResponseEntity<Map<String, String>> logout(Authentication authentication) {
-        authService.logout(authentication.getName());
+        authService.logout(((AuthUser) authentication.getPrincipal()).getId());
         return ResponseEntity.ok(Map.of("message", "Logged out"));
     }
 
+    @PostMapping("/otp/send")
+    public ResponseEntity<OtpSentResponseDTO> sendOtp(
+            @Valid @RequestBody OtpSendRequestDTO request, HttpServletRequest http) {
+        return ResponseEntity.ok(mobileAuthService.requestOtp(request.mobile(), http.getRemoteAddr()));
+    }
+
+    @PostMapping("/otp/verify")
+    public ResponseEntity<AuthResponseDTO> verifyOtp(
+            @Valid @RequestBody OtpVerifyRequestDTO request, HttpServletRequest http) {
+        return ResponseEntity.ok(
+                mobileAuthService.verifyOtp(request.mobile(), request.otp(), http.getRemoteAddr()));
+    }
 
 }

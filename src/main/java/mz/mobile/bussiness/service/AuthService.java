@@ -16,7 +16,6 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,25 +69,6 @@ public class AuthService {
         return "Registration successful. Please log in.";
     }
 
-//    public AuthResponseDTO login(LoginRequestDTO request) {
-//
-//        String email = EmailUtils.normalize(request.email());
-//
-//        try {
-//            authenticationManager.authenticate(
-//                    new UsernamePasswordAuthenticationToken(email, request.password()));
-//        } catch (BadCredentialsException e) {
-//            loginAttemptService.recordFailure(email);
-//            throw e;
-//        }
-//        loginAttemptService.recordSuccess(email);
-//
-//        UserDetails userDetails = userDetailsService.loadUserByUsername(email);
-//        String token = jwtService.generateToken(userDetails);
-//
-//        return new AuthResponseDTO(token, "Bearer", jwtService.getExpirationMs());
-//    }
-
     // Deliberately NOT @Transactional (failure counts must never roll back)
     public AuthResponseDTO login(LoginRequestDTO request) {
         String email = EmailUtils.normalize(request.email());
@@ -102,15 +82,18 @@ public class AuthService {
             throw e;
         }
 
+        // Mobile - OTP
         AuthUser user = (AuthUser) auth.getPrincipal();
         loginAttemptService.recordSuccess(email);
 
         return new AuthResponseDTO(jwtService.generateToken(user), "Bearer",
-                jwtService.getExpirationMs(), user.getUsername(), user.getRoleNames());
+                jwtService.getExpirationMs(), user.getEmail(), user.getMobile(), user.getRoleNames());
+
     }
 
+    // Mobile - OTP
     @Transactional
-    public void logout(String email) {
-        userRepository.incrementTokenVersion(email);   // invalidates every token of this user
+    public void logout(Long userId) {
+        userRepository.incrementTokenVersion(userId);
     }
 }
