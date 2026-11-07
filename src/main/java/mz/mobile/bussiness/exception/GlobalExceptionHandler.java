@@ -58,6 +58,11 @@ public class GlobalExceptionHandler {
         return body(s, e.getReason() != null ? e.getReason() : s.getReasonPhrase());
     }
 
+    @ExceptionHandler(IllegalArgumentException.class)
+    ResponseEntity<Map<String, String>> illegalArgument(IllegalArgumentException e) {
+        return body(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
     @ExceptionHandler(Exception.class)
     ResponseEntity<Map<String, String>> other(Exception e) {
         if (e instanceof ErrorResponse er) {            // 404, 405, 415 ... keep their real status
