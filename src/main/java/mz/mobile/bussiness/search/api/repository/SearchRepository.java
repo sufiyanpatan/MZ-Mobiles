@@ -1,6 +1,8 @@
+
 package mz.mobile.bussiness.search.api.repository;
 
 import mz.mobile.bussiness.search.api.dto.ProductSearchResult;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -18,18 +20,18 @@ public class SearchRepository {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    /**
-     * Main database search method.
-     */
     public List<ProductSearchResult> search(
             List<String> tokens,
             int limit
     ) {
 
-        List<QueryTermMatch> queryMatches =
-                new ArrayList<>();
+        if (tokens == null || tokens.isEmpty()) {
+            return List.of();
+        }
 
-        // Step 1: Find vocabulary terms for each query word.
+        List<QueryTermMatch> queryMatches = new ArrayList<>();
+
+        // Resolve every search word to vocabulary IDs.
         for (int tokenIndex = 0;
              tokenIndex < tokens.size();
              tokenIndex++) {
@@ -42,49 +44,54 @@ public class SearchRepository {
                             || (token.length() == 1 && tokenIndex > 0);
 
             List<VocabularyTerm> vocabularyTerms =
-                    findVocabularyTerms(
-                            token,
-                            allowPrefixSearch
-                    );
+                    findVocabularyTerms(token, allowPrefixSearch);
 
-            // Step 2: Connect vocabulary terms
-            // with their original query word.
+            /*
+             * Require every query word to match.
+             *
+             * Example:
+             * "iphone xyz"
+             *
+             * Should not return every iPhone.
+             */
+            if (vocabularyTerms.isEmpty()) {
+                return List.of();
+            }
+
             for (VocabularyTerm vocabularyTerm : vocabularyTerms) {
-
-                boolean exactMatch =
-                        vocabularyTerm.term().equals(token);
 
                 queryMatches.add(
                         new QueryTermMatch(
                                 tokenIndex,
                                 vocabularyTerm.termId(),
-                                exactMatch
+                                vocabularyTerm.term().equals(token)
                         )
                 );
             }
         }
 
-        // No vocabulary entries found.
-        if (queryMatches.isEmpty()) {
-            return List.of();
+        // Fast path for a single exact vocabulary term.
+        if (tokens.size() == 1 && queryMatches.size() == 1) {
+
+            return executeSingleTermSearch(
+                    queryMatches.get(0).termId(),
+                    limit
+            );
         }
 
-        // Step 3: Retrieve and rank products.
+        // Multiple words or expanded prefixes.
         return executeProductSearch(
                 queryMatches,
+                tokens.size(),
                 limit
         );
     }
 
-    /**
-     * Retrieves vocabulary entries for one query token.
-     */
     private List<VocabularyTerm> findVocabularyTerms(
             String token,
             boolean allowPrefixSearch
     ) {
 
-        // For short words, search only the exact word.
         if (!allowPrefixSearch) {
 
             return jdbcTemplate.query(
@@ -94,57 +101,121 @@ public class SearchRepository {
                     WHERE term = ?
                     LIMIT 1
                     """,
+
                     (rs, rowNum) -> new VocabularyTerm(
                             rs.getLong("term_id"),
                             rs.getString("term")
                     ),
+
                     token
             );
         }
 
         /*
-         * Prefix search.
+         * Numeric-prefix special handling.
          *
-         * Example:
-         * token = iph
+         * "iphone 1" should match 11, 12, 13.
          *
-         * Possible vocabulary matches:
-         * iphone
-         * iphones
-         *
-         * A B-tree index can support a prefix pattern
-         * such as iph%.
+         * It should not expand the numeric token into
+         * storage terms such as 128gb.
          */
-        String sql = """
-                SELECT
-                    term_id,
-                    term
-                FROM search_vocabulary
-                WHERE term LIKE ?
-                ORDER BY
-                    CASE WHEN term = ? THEN 0 ELSE 1 END,
-                    CHAR_LENGTH(term) ASC,
-                    document_frequency DESC
-                LIMIT ?
-                """;
+        String sql = isSingleDigit(token)
+
+                ? """
+                  SELECT term_id, term
+                  FROM search_vocabulary
+                  WHERE term LIKE ?
+                    AND term REGEXP '^[0-9]+$'
+                  ORDER BY
+                      CASE WHEN term = ? THEN 0 ELSE 1 END,
+                      CHAR_LENGTH(term) ASC,
+                      document_frequency DESC
+                  LIMIT ?
+                  """
+
+                : """
+                  SELECT term_id, term
+                  FROM search_vocabulary
+                  WHERE term LIKE ?
+                  ORDER BY
+                      CASE WHEN term = ? THEN 0 ELSE 1 END,
+                      CHAR_LENGTH(term) ASC,
+                      document_frequency DESC
+                  LIMIT ?
+                  """;
 
         return jdbcTemplate.query(
                 sql,
+
                 (rs, rowNum) -> new VocabularyTerm(
                         rs.getLong("term_id"),
                         rs.getString("term")
                 ),
+
                 token + "%",
                 token,
                 MAX_TERM_EXPANSIONS
         );
     }
 
-    /**
-     * Executes the main product search query.
+    /*
+     * Optimized single-word search.
+     */
+    private List<ProductSearchResult> executeSingleTermSearch(
+            long termId,
+            int limit
+    ) {
+
+        String sql = """
+                SELECT
+                    p.id,
+                    p.brand,
+                    p.product_name,
+                    p.model,
+                    p.price,
+                    CAST(
+                        pst.field_weight AS DECIMAL(10,2)
+                    ) AS relevance_score
+
+                FROM product_search_terms pst
+
+                JOIN products p
+                    ON p.id = pst.product_id
+
+                WHERE pst.term_id = ?
+
+                ORDER BY
+                    pst.field_weight DESC,
+                    pst.product_id DESC
+
+                LIMIT ?
+                """;
+
+        return jdbcTemplate.query(
+                sql,
+
+                (rs, rowNum) -> new ProductSearchResult(
+                        rs.getLong("id"),
+                        rs.getString("brand"),
+                        rs.getString("product_name"),
+                        rs.getString("model"),
+                        rs.getBigDecimal("price"),
+                        rs.getDouble("relevance_score")
+                ),
+
+                termId,
+                limit
+        );
+    }
+
+    /*
+     * Multi-word search.
+     *
+     * A product must match every query token.
      */
     private List<ProductSearchResult> executeProductSearch(
             List<QueryTermMatch> queryMatches,
+            int expectedTokenCount,
             int limit
     ) {
 
@@ -152,15 +223,7 @@ public class SearchRepository {
 
         List<Object> parameters = new ArrayList<>();
 
-        /*
-         * Build a temporary list of:
-         * query token number
-         * vocabulary term ID
-         * whether the vocabulary term is an exact match
-         */
-        sql.append("""
-                WITH query_matches AS (
-                """);
+        sql.append("WITH query_matches AS (");
 
         for (int i = 0; i < queryMatches.size(); i++) {
 
@@ -169,15 +232,18 @@ public class SearchRepository {
             }
 
             sql.append("""
-                    SELECT ? AS token_no,
-                           ? AS term_id,
-                           ? AS exact_match
+                    SELECT
+                        ? AS token_no,
+                        ? AS term_id,
+                        ? AS exact_match
                     """);
 
             QueryTermMatch match = queryMatches.get(i);
 
             parameters.add(match.tokenNo());
+
             parameters.add(match.termId());
+
             parameters.add(match.exactMatch() ? 1 : 0);
         }
 
@@ -215,7 +281,8 @@ public class SearchRepository {
                     SELECT
                         product_id,
 
-                        COUNT(*) AS matched_token_count,
+                        COUNT(DISTINCT token_no)
+                            AS matched_token_count,
 
                         SUM(
                             CASE
@@ -236,10 +303,11 @@ public class SearchRepository {
                     FROM per_product_token
 
                     GROUP BY product_id
+
+                    HAVING COUNT(DISTINCT token_no) = ?
                 )
 
                 SELECT
-
                     p.id,
                     p.brand,
                     p.product_name,
@@ -267,6 +335,8 @@ public class SearchRepository {
                 LIMIT ?
                 """);
 
+        parameters.add(expectedTokenCount);
+
         parameters.add(limit);
 
         return jdbcTemplate.query(
@@ -285,21 +355,12 @@ public class SearchRepository {
         );
     }
 
-    /**
-     * Allows a one-digit number to work as a prefix.
-     *
-     * Example:
-     * 1 -> 11, 12, 13, 14
-     */
     private boolean isSingleDigit(String token) {
 
         return token.length() == 1
                 && Character.isDigit(token.charAt(0));
     }
 
-    /**
-     * Simple database connectivity check.
-     */
     public boolean pingDatabase() {
 
         Integer result = jdbcTemplate.queryForObject(

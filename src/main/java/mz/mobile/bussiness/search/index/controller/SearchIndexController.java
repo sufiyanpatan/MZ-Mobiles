@@ -14,19 +14,27 @@ public class SearchIndexController {
     private final SearchIndexBuilderService indexBuilderService;
 
     public SearchIndexController(
-            SearchIndexBuilderService indexBuilderService) {
-
+            SearchIndexBuilderService indexBuilderService
+    ) {
         this.indexBuilderService = indexBuilderService;
     }
 
     @PostMapping("/rebuild")
     public ResponseEntity<SearchIndexBuildResponse> rebuildIndex(
-            @RequestParam(defaultValue = "1000000") long maxProducts,
+
+            @RequestParam(required = false) Long maxProducts,
+
             @RequestParam(defaultValue = "500") int batchSize
+
     ) {
+
+        long maximum = maxProducts == null
+                ? Long.MAX_VALUE
+                : maxProducts;
+
         SearchIndexBuildResponse response =
                 indexBuilderService.rebuildIndex(
-                        maxProducts,
+                        maximum,
                         batchSize
                 );
 
